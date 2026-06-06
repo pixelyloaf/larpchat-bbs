@@ -145,7 +145,18 @@ def fetch_rooms():
                 state["active_room"] = state["rooms"][0]
     except Exception:
         state["rooms"] = ["general", "announcements", "bots", "lounge", "luigi chat"]
-
+def fetch_rules():
+    """Retrieves network/server rules via GET request and prints them."""
+    try:
+        response = requests.get(f"{HTTP_URL}/api/rules")
+        if response.status_code == 200:
+            print(f"\n{CLR_YELLOW}--- Server Rules ---{CLR_RESET}")
+            print(response.text.strip())
+            print(f"{CLR_YELLOW}--------------------{CLR_RESET}\n")
+        else:
+            print(f"\n{CLR_RED}Error: Server responded with status code {response.status_code}{CLR_RESET}")
+    except Exception as e:
+        print(f"\n{CLR_RED}Could not fetch rules from server: {e}{CLR_RESET}")
 def send_chat(message):
     """Dispatches a chat transmission out to the HTTP gateway."""
     if not message.strip():
@@ -205,6 +216,7 @@ def display_help():
     print(f"\n{CLR_YELLOW}--- Command List ---{CLR_RESET}")
     print(f"  /rooms          - List all channels available on server")
     print(f"  /join <name>    - Change focus to another conversation channel")
+    print(f"  /rules          - View server rules and regulations")
     print(f"  /switch         - Wipe stored configuration data and swap users")
     print(f"  /help           - Bring up this interface summary window")
     print(f"  /quit           - Drop connection matrix and go back to BBS")
@@ -245,6 +257,9 @@ def main_loop():
             elif cmd == "/rooms":
                 fetch_rooms()
                 print(f"\n{CLR_YELLOW}Channels available:{CLR_RESET} {', '.join(state['rooms'])}")
+                print_prompt()
+            elif cmd == "/rules":
+                fetch_rules()
                 print_prompt()
             elif cmd == "/join":
                 if len(parts) < 2:
