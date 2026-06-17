@@ -11,6 +11,7 @@ try:
     import termios
 except ImportError:
     termios = None
+
 # --- Configuration ---
 HTTP_URL = "http://localhost:6767"
 TCP_HOST = "localhost"
@@ -82,14 +83,13 @@ def detect_bbs_user():
                 pass
 
 def authenticate():
-    """Handles prompt logins and account routing with a robust input loop."""
+    """Handles prompt logins and account routing with support for modern restriction parameters."""
     if state["token"] and state["username"]:
         print(f"{CLR_GREEN}Auto-logged in as chat user: {state['username']}{CLR_RESET}\n")
         return True
 
     print(f"{CLR_CYAN}--- Aurora Chat Network Connection ---{CLR_RESET}")
     
-
     while True:
         time.sleep(0.1)
         if termios and sys.stdin.isatty():
@@ -98,34 +98,45 @@ def authenticate():
             except Exception:
                 pass
         username = input("Username: ").strip()
-        if username:  # Only proceed if they actually typed something
+        if username:
             break
 
-
     while True:
-        # Give the terminal a split second to register the username's Enter key
         time.sleep(0.1) 
         if termios and sys.stdin.isatty():
             try:
-                # Flush out any leftover trailing \r or \n from the username input
                 termios.tcflush(sys.stdin, termios.TCIFLUSH)
             except Exception:
                 pass
         
         password = input("Password: ").strip()
-        if password:  # Only proceed if it's not blank. If it is blank, it just loops.
+        if password:
             break
 
     # Server expects a text pipeline string format: username|password|
     payload = f"{username}|{password}|"
     try:
         response = requests.post(f"{HTTP_URL}/api/login", data=payload, headers={"Content-Type": "text/plain"})
-        if "ERR_WRONG_PASS" in response.text or response.status_code != 200:
+        resp_text = response.text.strip()
+
+        if "ERR_WRONG_PASS" in resp_text or response.status_code != 200:
             print(f"{CLR_RED}Invalid username or password.{CLR_RESET}")
             return False
         
+        if "ERR_BANNED" in resp_text:
+            # Handle format: ERR_BANNED|reason|
+            parts = resp_text.split("|")
+            reason = parts[1] if len(parts) > 1 else "No reason specified"
+            print(f"\n{CLR_RED}ACCESS DENIED: You are banned from this server.{CLR_RESET}")
+            print(f"{CLR_YELLOW}Reason: {reason}{CLR_RESET}\n")
+            return False
+
+        if "ERR_FAKE_USER" in resp_text:
+            print(f"{CLR_RED}User record missing or invalid.{CLR_RESET}")
+            return False
+        
         # Clean server token format split: token|\n
-        token = response.text.split("|")[0].strip()
+        token = resp_text.split("|")[0].strip()
         state["token"] = token
         state["username"] = username
         save_credentials(username, token)
@@ -134,17 +145,25 @@ def authenticate():
     except Exception as e:
         print(f"{CLR_RED}Could not reach login server: {e}{CLR_RESET}")
         return False
+
 def fetch_rooms():
     """Retrieves available room lists from the API server."""
     try:
         response = requests.post(f"{HTTP_URL}/api/rooms")
-        parts = response.text.split("|")
+        resp_text = response.text.strip()
+        
+        if "ERR_BANNED" in resp_text:
+            print(f"\n{CLR_RED}Your network endpoint IP has been restricted/banned.{CLR_RESET}")
+            return
+
+        parts = resp_text.split("|")
         if len(parts) > 2:
             state["rooms"] = [r for r in parts[1:-1] if r]
             if state["active_room"] not in state["rooms"] and state["rooms"]:
                 state["active_room"] = state["rooms"][0]
     except Exception:
-        state["rooms"] = ["general", "announcements", "bots", "lounge", "luigi chat"]
+        state["rooms"] = ["general", "announcements", "bots", "lounge", "luigi chat", "roleplay", "testing channel"]
+
 def fetch_rules():
     """Retrieves network/server rules via GET request and prints them."""
     try:
@@ -157,20 +176,36 @@ def fetch_rules():
             print(f"\n{CLR_RED}Error: Server responded with status code {response.status_code}{CLR_RESET}")
     except Exception as e:
         print(f"\n{CLR_RED}Could not fetch rules from server: {e}{CLR_RESET}")
+
 def send_chat(message):
-    """Dispatches a chat transmission out to the HTTP gateway."""
+    """Dispatches a chat transmission out to the HTTP gateway with rule violations checking."""
     if not message.strip():
         return
     payload = f"{message}|{state['active_room']}|"
     headers = {"auth": state["token"], "Content-Type": "text/plain"}
     try:
         res = requests.post(f"{HTTP_URL}/api/chat", data=payload, headers=headers)
-        if "ERR_INVALID_TOKEN" in res.text or "ERR_WHAT_THE_HECK" in res.text:
+        resp_text = res.text.strip()
+
+        if "ERR_INVALID_TOKEN" in resp_text or "ERR_WHAT_THE_HECK" in resp_text:
             print(f"\n{CLR_RED}Session expired. Please use /switch to log back in.{CLR_RESET}")
-        elif "ERR_FAKE_ROOM_YOU_MORON" in res.text:
+        elif "ERR_FAKE_ROOM_YOU_MORON" in resp_text:
             print(f"\n{CLR_RED}Error: Server rejected destination channel.{CLR_RESET}")
-        elif "ERR_NO_RIGHTS" in res.text:
-            print(f"\n{CLR_RED}Error: You do not have permissions to post here.{CLR_RESET}")
+        elif "ERR_NO_RIGHTS" in resp_text:
+            print(f"\n{CLR_RED}Error: You do not have administrator permissions to post in announcements.{CLR_RESET}")
+        elif "ERR_MUTED" in resp_text:
+            print(f"\n{CLR_RED}Transmission Failed: You have been muted by an administrator and cannot speak.{CLR_RESET}")
+        elif "ERR_BANNED" in resp_text:
+            parts = resp_text.split("|")
+            reason = parts[1] if len(parts) > 1 else "No reason specified"
+            print(f"\n{CLR_RED}Session Terminated: Your account has been banned.{CLR_RESET}")
+            print(f"{CLR_YELLOW}Reason: {reason}{CLR_RESET}")
+            state["running"] = False
+        elif "ERR_FAKE_USER" in resp_text:
+            print(f"\n{CLR_RED}Error: Server could not resolve user authentication profiles.{CLR_RESET}")
+        elif "ERR_MISSING_FIELD" in resp_text:
+            print(f"\n{CLR_RED}Error: Sent malformed packet framing metadata.{CLR_RESET}")
+            
     except Exception as e:
         print(f"\n{CLR_RED}Error broadcasting packet: {e}{CLR_RESET}")
 
@@ -195,7 +230,7 @@ def tcp_listener():
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
                 if line.strip():
-                    # Expected syntax payload: username|message|room||
+                    # Expected syntax payload from server.js: username|message|room||
                     parts = line.split("|")
                     if len(parts) >= 3:
                         sender = parts[0]
@@ -244,7 +279,6 @@ def main_loop():
                 state["running"] = False
                 break 
             elif cmd == "/logout":
-                # Don't tell anyone about this command!
                 state["token"] = None
                 state["username"] = None
                 save_credentials("", "")
@@ -299,26 +333,21 @@ def main():
         
     fetch_rooms()
 
-
     listener_thread = threading.Thread(target=tcp_listener, daemon=True)
     listener_thread.start()
-
 
     main_loop()
 
     state["running"] = False
     print(f"\n{CLR_CYAN}Disconnecting from Aurora Matrix and returning to BBS...{CLR_RESET}")
     
-
     time.sleep(1.0)
     
-
     if termios and sys.stdin.isatty():
         try:
             termios.tcflush(sys.stdin, termios.TCIOFLUSH)
         except Exception:
             pass
-   
 
 if __name__ == "__main__":
     main()
