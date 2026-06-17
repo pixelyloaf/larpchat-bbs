@@ -127,8 +127,9 @@ def authenticate():
             # Handle format: ERR_BANNED|reason|
             parts = resp_text.split("|")
             reason = parts[1] if len(parts) > 1 else "No reason specified"
-            print(f"\n{CLR_RED}ACCESS DENIED: You are banned from this server.{CLR_RESET}")
+            print(f"\n{CLR_RED}ACCESS DENIED: You are banned from this server.\n{CLR_RESET}")
             print(f"{CLR_YELLOW}Reason: {reason}{CLR_RESET}\n")
+            print(f"{CLR_GREEN}Appeal at https://unitendo.org/appeal/{CLR_RESET}\n")
             return False
 
         if "ERR_FAKE_USER" in resp_text:
@@ -153,7 +154,9 @@ def fetch_rooms():
         resp_text = response.text.strip()
         
         if "ERR_BANNED" in resp_text:
-            print(f"\n{CLR_RED}Your network endpoint IP has been restricted/banned.{CLR_RESET}")
+            print(f"\n{CLR_RED}Your network endpoint IP has been restricted/banned.\n{CLR_RESET}")
+            print(f"{CLR_YELLOW}Reason: {reason}{CLR_RESET}\n")
+            print(f"{CLR_GREEN}Appeal at https://unitendo.org/appeal/{CLR_RESET}\n")
             return
 
         parts = resp_text.split("|")
@@ -200,6 +203,7 @@ def send_chat(message):
             reason = parts[1] if len(parts) > 1 else "No reason specified"
             print(f"\n{CLR_RED}Session Terminated: Your account has been banned.{CLR_RESET}")
             print(f"{CLR_YELLOW}Reason: {reason}{CLR_RESET}")
+            print(f"{CLR_GREEN}Appeal at https://unitendo.org/appeal/{CLR_RESET}")
             state["running"] = False
         elif "ERR_FAKE_USER" in resp_text:
             print(f"\n{CLR_RED}Error: Server could not resolve user authentication profiles.{CLR_RESET}")
