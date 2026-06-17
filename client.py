@@ -154,6 +154,8 @@ def fetch_rooms():
         resp_text = response.text.strip()
         
         if "ERR_BANNED" in resp_text:
+            parts = resp_text.split("|")
+            reason = parts[1] if len(parts) > 1 else "No reason specified"
             print(f"\n{CLR_RED}Your network endpoint IP has been restricted/banned.\n{CLR_RESET}")
             print(f"{CLR_YELLOW}Reason: {reason}{CLR_RESET}\n")
             print(f"{CLR_GREEN}Appeal at https://unitendo.org/appeal/{CLR_RESET}\n")
@@ -214,11 +216,14 @@ def send_chat(message):
         print(f"\n{CLR_RED}Error broadcasting packet: {e}{CLR_RESET}")
 
 def tcp_listener():
-    """Background listener managing raw incoming downstream socket broadcasts."""
+    """Background listener managing raw incoming downstream socket broadcasts and chat history."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((TCP_HOST, TCP_PORT))
         s.settimeout(1.0)
+        
+        # Request room logs immediately upon a successful TCP shake
+        s.sendall(b"history")
     except Exception as e:
         sys.stdout.write(f"\r\x1b[K{CLR_RED}Warning: TCP Live-Stream Offline ({e}){CLR_RESET}\n")
         print_prompt()
@@ -234,14 +239,13 @@ def tcp_listener():
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
                 if line.strip():
-                    # Expected syntax payload from server.js: username|message|room||
                     parts = line.split("|")
                     if len(parts) >= 3:
                         sender = parts[0]
                         msg_content = parts[1]
                         msg_room = parts[2]
                         
-                        # Only render message if it belongs to user's active channel focus
+                        # Only render historical or active items belonging to the user's active channel focus
                         if msg_room == state["active_room"]:
                             sys.stdout.write(f"\r\x1b[K{CLR_CYAN}<{sender}>{CLR_RESET} {msg_content}\n")
                             print_prompt()
